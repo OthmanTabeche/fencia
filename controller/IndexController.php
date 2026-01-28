@@ -101,7 +101,7 @@ class IndexControllerCore extends FrontController
             //     $to = Configuration::get('PS_SHOP_EMAIL'); // Email por defecto
             // }
             //$to = "leads@fencia.es";
-            $to = "";
+            $to = "sam@hostienda.com";
             
             // Asunto del correo
             $subject = 'Solicitud información - Producto: ' . $productName;
@@ -118,6 +118,37 @@ class IndexControllerCore extends FrontController
                 '{date}' => date('d/m/Y - H:i:s'),
                 '{message}' => 'El cliente desea recibir más información sobre este producto.'
             );
+
+            /* -----------------------------------------------------------
+             * INICIO: INTERCEPCIÓN GESTOR DE LEADS (BOTÓN VERDE)
+             * ----------------------------------------------------------- */
+            try {
+                if (Module::isEnabled('leaddata_manager')) {
+                    $modulePath = _PS_MODULE_DIR_ . 'leaddata_manager/leaddata_manager.php';
+                    if (file_exists($modulePath)) {
+                        require_once($modulePath);
+                        if (class_exists('Leaddata_manager')) {
+                            
+                            // Preparamos los datos
+                            $leadData = [
+                                'firstname'    => $customerName,
+                                'lastname'     => '', 
+                                'email'        => $customerEmail,
+                                'phone'        => '', // Si el formulario enviase teléfono: Tools::getValue('phone')
+                                'request_type' => 'Solicitud Info Producto', // Diferenciamos del botón azul
+                                'message'      => 'Solicita información. Ref: ' . ($productReference ? $productReference : 'N/A'),
+                                'product_name' => $productName ? $productName : 'Producto ID: ' . $productId
+                            ];
+
+                            // Guardamos en la BD
+                            Leaddata_manager::saveLeadFromController($leadData);
+                        }
+                    }
+                }
+            } catch (Exception $e) {
+                // Si falla, no detenemos el proceso, solo registramos el error
+                PrestaShopLogger::addLog('Error Leaddata GreenBtn: ' . $e->getMessage(), 3);
+            }
             
             // Enviar correo
             $mailSent = Mail::Send(
@@ -214,9 +245,6 @@ private function processAjaxRequestBtnAuctionEmail()
                 '{message}' => 'El cliente desea recibir más información sobre este producto.'
             );
             
-            /* -----------------------------------------------------------
-             * INICIO: INTERCEPCIÓN GESTOR DE LEADS
-             * ----------------------------------------------------------- */
             try {
                 // 1. Verificamos si el módulo está activo
                 if (Module::isEnabled('leaddata_manager')) {

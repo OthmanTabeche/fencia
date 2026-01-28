@@ -40,13 +40,22 @@ class IndexControllerCore extends FrontController
         //  }
 
         // Verificar si es una petición AJAX
+        if (Tools::getValue('ajax') == '1' && Tools::getValue('action') == 'sendProductEmail') {
+            $this->processAjaxRequest();
+        }
         if (Tools::getValue('ajax') == '3' && Tools::getValue('action') == 'sendProductEmailAuction') {
             $this->processAjaxRequestBtnAuctionEmail();
         }
-        
+
+        /* -----------------------------------------------------------
+        * INICIO: SOLO PARA TEST
+        * ----------------------------------------------------------- */
         if (Tools::getValue('ajax') == '2' && Tools::getValue('action') == 'emailTest') {
             $this->processAjaxRequestTest();
         }
+        /* -----------------------------------------------------------
+        * FIN: SOLO PARA TEST
+        * ----------------------------------------------------------- */
 
         parent::initContent();
         $this->context->smarty->assign([
@@ -54,6 +63,100 @@ class IndexControllerCore extends FrontController
         ]);
         $this->setTemplate('index');
     }
+
+
+    private function processAjaxRequest()
+    {
+        // Establecer cabeceras JSON
+        header('Content-Type: application/json');
+        
+        try {
+            // Verificar token CSRF para seguridad (opcional pero recomendado)
+            // if (!Tools::checkToken()) {
+            //     throw new Exception('Token inválido');
+            // }
+            
+            $productId = (int)Tools::getValue('product_id');
+            $productName = Tools::getValue('product_name');
+            $productReference = Tools::getValue('product_reference');
+            $productLink = Tools::getValue('product_link');
+            
+            if (!$productId) {
+                throw new Exception('ID de producto no válido');
+            }
+            
+            // Obtener información del cliente
+            $customer = $this->context->customer;
+            $customerName = 'Visitante';
+            $customerEmail = 'No registrado';
+            
+            if (Validate::isLoadedObject($customer) && $customer->id) {
+                $customerName = $customer->firstname . ' ' . $customer->lastname;
+                $customerEmail = $customer->email;
+            }
+            
+            // Dirección de correo de la tienda
+            // $to = Configuration::get('PS_SHOP_EMAIL');
+            // if (!$to) {
+            //     $to = Configuration::get('PS_SHOP_EMAIL'); // Email por defecto
+            // }
+            //$to = "leads@fencia.es";
+            $to = "";
+            
+            // Asunto del correo
+            $subject = 'Solicitud información - Producto: ' . $productName;
+            
+            // Preparar variables para el template de email
+            $templateVars = array(
+                '{product_name}' => $productName,
+                '{product_id}' => $productId,
+                '{product_reference}' => $productReference,
+                '{product_link}' => $productLink,
+                '{customer_name}' => $customerName,
+                '{customer_email}' => $customerEmail,
+                '{shop_name}' => Configuration::get('PS_SHOP_NAME'),
+                '{date}' => date('d/m/Y - H:i:s'),
+                '{message}' => 'El cliente desea recibir más información sobre este producto.'
+            );
+            
+            // Enviar correo
+            $mailSent = Mail::Send(
+                (int)$this->context->language->id,
+                'contact_send_email', // Usar el template de contacto existente
+                //Mail::l($subject, (int)$this->context->language->id),
+                $subject,
+                $templateVars,
+                $to,
+                null,
+                Configuration::get('PS_SHOP_EMAIL'),
+                Configuration::get('PS_SHOP_NAME'),
+                null,
+                null,
+                _PS_MAIL_DIR_,
+                false,
+                (int)$this->context->shop->id
+            );
+            
+            if ($mailSent) {
+                echo json_encode([
+                    'success' => true,
+                    'message' => $this->trans('Correo enviado correctamente. Te contactaremos pronto.', [], 'Shop.Theme.Actions')
+                ]);
+            } else {
+                throw new Exception('No se pudo enviar el correo. Verifica la configuración de email.');
+            }
+            
+        } catch (Exception $e) {
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'message' => $this->trans('Error: ', [], 'Shop.Theme.Actions') . $e->getMessage()
+            ]);
+        }
+        
+        exit;
+    }
+
 
 
 private function processAjaxRequestBtnAuctionEmail()
@@ -93,7 +196,7 @@ private function processAjaxRequestBtnAuctionEmail()
             // }
 
             //$to = "leads@fencia.es";
-            $to = "sam@hostienda.com";
+            $to = "";
             
             // Asunto del correo
             $subject = 'Solicitud de aviso disponible - Producto: ' . $productName;
@@ -110,6 +213,10 @@ private function processAjaxRequestBtnAuctionEmail()
                 '{date}' => date('d/m/Y - H:i:s'),
                 '{message}' => 'El cliente desea recibir más información sobre este producto.'
             );
+            
+            /* -----------------------------------------------------------
+             * INICIO: INTERCEPCIÓN GESTOR DE LEADS
+             * ----------------------------------------------------------- */
             try {
                 // 1. Verificamos si el módulo está activo
                 if (Module::isEnabled('leaddata_manager')) {
@@ -185,6 +292,10 @@ private function processAjaxRequestBtnAuctionEmail()
         exit;
     }
 
+
+    /* -----------------------------------------------------------
+    * INICIO: SOLO PARA TEST
+    * ----------------------------------------------------------- */    
     private function processAjaxRequestTest()
     {
         // Establecer cabeceras JSON
@@ -220,7 +331,7 @@ private function processAjaxRequestBtnAuctionEmail()
             // if (!$to) {
             //     $to = Configuration::get('PS_SHOP_EMAIL'); // Email por defecto
             // }
-            $to = "sam@hostienda.com";            
+            $to = "";            
             // Asunto del correo
             $subject = 'Test email order_conf';
             
@@ -268,6 +379,9 @@ private function processAjaxRequestBtnAuctionEmail()
         
         exit;
     }
+    /* -----------------------------------------------------------
+    * FIN: SOLO PARA TEST
+    * ----------------------------------------------------------- */
 
 
 }

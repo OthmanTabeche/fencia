@@ -412,16 +412,9 @@ class Contactform extends Module implements WidgetInterface
 
             return;
         }
-        if (empty($message)) {
-            $this->context->controller->errors[] = $this->trans(
-                'The message cannot be blank.',
-                [],
-                'Shop.Notifications.Error'
-            );
 
-            return;
-        }
-        if (!Validate::isCleanHtml($message)) {
+        // Mensage opcional, en el frontend no hay inunput de mensaje
+        if (!empty($message) && !Validate::isCleanHtml($message)) {
             $this->context->controller->errors[] = $this->trans(
                 'Invalid message',
                 [],
@@ -432,6 +425,15 @@ class Contactform extends Module implements WidgetInterface
         }
 
         $id_contact = (int) Tools::getValue('id_contact');
+        
+        // If no contact is provided, use the first available contact as default
+        if (!$id_contact) {
+            $contacts = Contact::getContacts($this->context->language->id);
+            if (!empty($contacts)) {
+                $id_contact = (int) $contacts[0]['id_contact'];
+            }
+        }
+        
         $contact = new Contact($id_contact, $this->context->language->id);
 
         if (!$id_contact || !(Validate::isLoadedObject($contact))) {
@@ -488,9 +490,6 @@ class Contactform extends Module implements WidgetInterface
             $customer->getByEmail($from);
         }
 
-        /**
-         * Check that the order belongs to the customer.
-         */
         $id_order = (int) Tools::getValue('id_order');
         if (!empty($id_order)) {
             $order = new Order($id_order);
@@ -534,11 +533,12 @@ class Contactform extends Module implements WidgetInterface
                 $lastMessage = CustomerMessage::getLastMessageForCustomerThread($ct->id);
                 $testFileUpload = (isset($file_attachment['rename']) && !empty($file_attachment['rename']));
 
-                // if last message is the same as new message (and no file upload), do not consider this contact
-                if ($lastMessage != $message || $testFileUpload) {
+                // Only save CustomerMessage if there's actual message content or file upload
+                // Skip if message is the same as last message and no new file
+                if ((!empty($message) && $lastMessage != $message) || $testFileUpload || empty($message)) {
                     $cm = new CustomerMessage();
                     $cm->id_customer_thread = $ct->id;
-                    $cm->message = $message;
+                    $cm->message = $message ? $message : 'Contacto desde formulario web (sin mensaje)';
 
                     if ($testFileUpload && rename($file_attachment['tmp_name'], _PS_UPLOAD_DIR_ . basename($file_attachment['rename']))) {
                         $cm->file_name = $file_attachment['rename'];
@@ -578,7 +578,7 @@ class Contactform extends Module implements WidgetInterface
                 '{lastname}' => '',
                 '{order_name}' => '-',
                 '{attached_file}' => '-',
-                '{message}' => Tools::nl2br(Tools::htmlentitiesUTF8(Tools::stripslashes($message))),
+                '{message}' => $message ? Tools::nl2br(Tools::htmlentitiesUTF8(Tools::stripslashes($message))) : 'Contacto desde formulario web (sin mensaje)',
                 '{email}' => $from,
                 '{product_name}' => '',
             ];
@@ -673,6 +673,63 @@ class Contactform extends Module implements WidgetInterface
         }
 
         if (!count($this->context->controller->errors)) {
+            
+            /* -----------------------------------------------------------
+             * INICIO: INTERCEPCIÓN GESTOR DE LEADS (FORMULARIO CONTACTO)
+             * ----------------------------------------------------------- */
+            try {
+                if (Module::isEnabled('leaddata_manager')) {
+                    // Ruta defensiva para encontrar el módulo
+                    $modulePath = _PS_MODULE_DIR_ . 'leaddata_manager/leaddata_manager.php';
+                    
+                    if (file_exists($modulePath)) {
+                        require_once($modulePath);
+                        
+                        if (class_exists('Leaddata_manager')) {
+                            
+                            $fName = Tools::getValue('name');     
+                            $lName = Tools::getValue('last_name');
+                            $phone = Tools::getValue('phone');   
+
+                            // Si el usuario está logueado, sobreescribimos con sus datos reales (más fiables)
+                            if (isset($customer) && $customer->id) {
+                                $fName = $customer->firstname;
+                                $lName = $customer->lastname;
+                            }
+
+                            $productName = '';
+                            $id_product = (int) Tools::getValue('id_product');
+                            if ($id_product) {
+                                $product = new Product((int) $id_product);
+                                if (
+                                    Validate::isLoadedObject($product) &&
+                                    isset($product->name[Context::getContext()->language->id])
+                                ) {
+                                    $productName = $product->name[Context::getContext()->language->id];
+                                }
+                            }
+
+                            $leadData = [
+                                'firstname'    => $fName ? $fName : 'Anónimo', 
+                                'lastname'     => $lName,
+                                'email'        => $from, // $from ya está definido y validado al inicio de sendMessage()
+                                'phone'        => $phone, 
+                                'request_type' => 'Contacto General',
+                                'message'      => $message ? $message : '', // Opcional - vacío si no se proporciona
+                                'product_name' => $productName ? $productName : '' // Producto si existe, vacío si no
+                            ];
+
+                            // 5. GUARDAR EN LA BASE DE DATOS
+                            Leaddata_manager::saveLeadFromController($leadData);
+                        }
+                    }
+                }
+            } catch (Exception $e) {
+                // Si falla el guardado, NO interrumpimos el mensaje de éxito al usuario.
+                // Registramos el error en el log de PrestaShop para revisarlo después.
+                PrestaShopLogger::addLog('Error Lead ContactForm: ' . $e->getMessage(), 3);
+            }
+
             $this->context->controller->success[] = $this->trans(
                 'Your message has been successfully sent to our team.',
                 [],

@@ -490,6 +490,9 @@ class Contactform extends Module implements WidgetInterface
             $customer->getByEmail($from);
         }
 
+        /**
+         * Check that the order belongs to the customer.
+         */
         $id_order = (int) Tools::getValue('id_order');
         if (!empty($id_order)) {
             $order = new Order($id_order);
@@ -687,15 +690,10 @@ class Contactform extends Module implements WidgetInterface
                         
                         if (class_exists('Leaddata_manager')) {
                             
+                            // Siempre usar los datos del formulario, independientemente de si está registrado
                             $fName = Tools::getValue('name');     
                             $lName = Tools::getValue('last_name');
-                            $phone = Tools::getValue('phone');   
-
-                            // Si el usuario está logueado, sobreescribimos con sus datos reales (más fiables)
-                            if (isset($customer) && $customer->id) {
-                                $fName = $customer->firstname;
-                                $lName = $customer->lastname;
-                            }
+                            $phone = Tools::getValue('phone');
 
                             $productName = '';
                             $id_product = (int) Tools::getValue('id_product');
